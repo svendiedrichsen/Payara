@@ -37,16 +37,21 @@
  * only if the new code is made subject to such option by the copyright
  * holder.
  */
+// Portions Copyright [2018] [Payara Foundation and/or its affiliates]
+
 /**
  * WBN -- generic mechanism for simulating toString() and equals()
  * for any class
  */
 package com.sun.enterprise.util;
-//
 
-import java.lang.reflect.*;
-import java.util.Vector;
-import java.util.logging.*;
+import java.lang.reflect.Field;
+import java.lang.reflect.Method;
+import java.lang.reflect.Modifier;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 
 public class ObjectAnalyzer {
     /**
@@ -95,11 +100,10 @@ public class ObjectAnalyzer {
 
         Method[] methods = clazz.getMethods();
 
-        for (int i = 0; i < methods.length; i++) {
-            Method m = methods[i];
+        for (Method m : methods) {
             boolean isSetter = m.getName().startsWith("set");//NOI18N
 
-            if (settersOnly && isSetter == false)
+            if (settersOnly && !isSetter)
                 continue;
 
             sb.append(m.toString()).append('\n');
@@ -153,13 +157,11 @@ public class ObjectAnalyzer {
         Field[] fields = cl.getDeclaredFields();
         setAccessible(fields);
 
-        for (int i = 0; i < fields.length; i++) {
-            Field f = fields[i];
+        for (Field f : fields) {
             try {
                 if (!f.get(a).equals(f.get(b)))
                     return false;
-            }
-            catch (IllegalAccessException e) {
+            } catch (IllegalAccessException e) {
                 return false;
             }
         }
@@ -215,7 +217,7 @@ public class ObjectAnalyzer {
         FieldInfoVector fiv = new FieldInfoVector();
         Class cl = safeGetClass(obj);
 
-        if (doSuperClasses == false) {
+        if (!doSuperClasses) {
             getFieldInfo(cl, obj, fiv);
             return fiv;
         }
@@ -244,8 +246,7 @@ public class ObjectAnalyzer {
 
         setAccessible(fields);
 
-        for (int i = 0; i < fields.length; i++) {
-            Field f = fields[i];
+        for (Field f : fields) {
             String sval;
             String modifiers = Modifier.toString(f.getModifiers());
             String className = cl.getName();
@@ -263,8 +264,7 @@ public class ObjectAnalyzer {
                     sval = "<null>";//NOI18N
                 else
                     sval = val.toString();
-            }
-            catch (IllegalAccessException e) {
+            } catch (IllegalAccessException e) {
                 sval = "<IllegalAccessException>";//NOI18N
             }
 
@@ -278,8 +278,7 @@ public class ObjectAnalyzer {
             return;	// Must be pre JDK 1.2.x
 
         try {
-            Boolean b = Boolean.valueOf(true);
-            setAccessibleMethod.invoke(null, new Object[]{fields, b});
+            setAccessibleMethod.invoke(null, fields, Boolean.TRUE);
         }
         catch (Exception e) {
             Logger.getAnonymousLogger().warning("Got an exception invoking setAccessible: " + e);//NOI18N
@@ -308,12 +307,10 @@ public class ObjectAnalyzer {
 
         Method[] methods = AO.getDeclaredMethods();
 
-        for (int i = 0; i < methods.length; i++) {
-            Method m = methods[i];
-
+        for (Method m : methods) {
             if (m.getName().equals("setAccessible") && m.getParameterTypes().length == 2)//NOI18N
             {
-                if(Logger.getAnonymousLogger().isLoggable(Level.FINER))
+                if (Logger.getAnonymousLogger().isLoggable(Level.FINER))
                     Logger.getAnonymousLogger().finer("Found setAccessible: " + m);//NOI18N
                 setAccessibleMethod = m;
                 break;
@@ -353,7 +350,6 @@ class ObjectAnalyzerException extends Exception {
 class FieldInfo {
     Field field;
     String value;
-    //Class	clazz;
     String className;
     String modifiers;
 
@@ -369,17 +365,17 @@ class FieldInfo {
 ////////////////////////////////////////////////////////////////////////////
 class FieldInfoVector // { extends Vector
 {
-    Vector v = null;
+    private List<Object> v;
 
     FieldInfoVector() {
-        v = new Vector();
+        v = new ArrayList<>();
     }
 
     ////////////////////////////////////////////////////////////////////////////
     /**
      * @param o  */
     public void addElement(Object o) {
-        v.addElement(o);
+        v.add(o);
     }
 
     ////////////////////////////////////////////////////////////////////////////
@@ -387,11 +383,9 @@ class FieldInfoVector // { extends Vector
      * @return  */
     public String toString() {
         int veclen = v.size();
-        StringBuffer s = new StringBuffer();
+        StringBuilder s = new StringBuilder();
 
         setLongestNames();
-
-        //s.append("classNameLength: " + classNameLength + "fieldNameLength: " + fieldNameLength + "modifiersLength: " + modifiersLength + "\n\n");//NOI18N
 
         s.append(StringUtils.padRight("Class", classNameLength));//NOI18N
         s.append(StringUtils.padRight("Modifiers", modifiersLength));//NOI18N
@@ -414,7 +408,7 @@ class FieldInfoVector // { extends Vector
 
     ////////////////////////////////////////////////////////////////////////////
     private FieldInfo fetch(int i) {
-        return (FieldInfo) v.elementAt(i);
+        return (FieldInfo) v.get(i);
     }
 
     ////////////////////////////////////////////////////////////////////////////

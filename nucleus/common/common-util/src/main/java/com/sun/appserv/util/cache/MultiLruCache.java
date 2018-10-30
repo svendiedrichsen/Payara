@@ -37,14 +37,12 @@
  * only if the new code is made subject to such option by the copyright
  * holder.
  */
+// Portions Copyright [2018] [Payara Foundation and/or its affiliates]
 
 package com.sun.appserv.util.cache;
 
-import java.text.MessageFormat;
-
-import java.util.Properties;
 import java.util.Map;
-import java.util.ResourceBundle;
+import java.util.Properties;
 
 /**
  * MultiLruCache -- in-memory bounded LRU cache with multiple LRU lists
@@ -56,17 +54,17 @@ public class MultiLruCache extends BaseCache {
     /* an array of LRU lists; each element in this array is actually
      * LruCacheItem[2] with LRU list (lru[0] is head and lru[1] the tail
      */
-    public static final int LRU_HEAD = 0;
-    public static final int LRU_TAIL = 1;
-    public static final int DEFAULT_HASHTABLE_SEGMENT_SIZE = 4096;
+    private static final int LRU_HEAD = 0;
+    private static final int LRU_TAIL = 1;
+    private static final int DEFAULT_HASHTABLE_SEGMENT_SIZE = 4096;
 
-    int segmentSize;
-    LruCacheItem[][] lists;
-    protected int[] listsLength;
+    private int segmentSize;
+    private LruCacheItem[][] lists;
+    private int[] listsLength;
 
-    int trimCount;
-    int trimIndex;
-    Object trimIndexLk = new Object();
+    private int trimCount;
+    private int trimIndex;
+    private final Object trimIndexLk = new Object();
 
     /**
      * initialize the LRU cache
@@ -116,14 +114,12 @@ public class MultiLruCache extends BaseCache {
 
     /**
      * remove an lru item from one of the LRU lists
-     * @param the LRU segment index to trim
+     * @param segment LRU segment index to trim
      * @return the item that was successfully trimmed
      */
     protected CacheItem trimLru(int segment) {
         LruCacheItem[] list = lists[segment];
-        LruCacheItem l = null;
-
-        l = list[LRU_TAIL];
+        LruCacheItem l = list[LRU_TAIL];
 
         list[LRU_TAIL] = l.lPrev;
         list[LRU_TAIL].lNext = null;
@@ -270,8 +266,6 @@ public class MultiLruCache extends BaseCache {
      * to provide a robust cache replacement algorithm.
      */
     protected void handleOverflow() {
-        LruCacheItem l = null;
-
     }
 
     int getListsLength() {
@@ -298,16 +292,19 @@ public class MultiLruCache extends BaseCache {
         Object stat = super.getStatByName(key);
 
         if (stat == null && key != null) {
-            if (key.equals(Constants.STAT_MULTILRUCACHE_SEGMENT_SIZE))
-                stat = Integer.valueOf(segmentSize);
-            else if (key.equals(Constants.STAT_MULTILRUCACHE_TRIM_COUNT))
-                stat = Integer.valueOf(trimCount);
-            else if (key.equals(Constants.STAT_MULTILRUCACHE_SEGMENT_LIST_LENGTH)) {
-                stat = new Integer[lists.length];
-
-                for (int i = 0; i < lists.length; i++) {
-                    ((Integer[])stat)[i] = Integer.valueOf(listsLength[i]);
-                }
+            switch (key) {
+                case Constants.STAT_MULTILRUCACHE_SEGMENT_SIZE:
+                    stat = segmentSize;
+                    break;
+                case Constants.STAT_MULTILRUCACHE_TRIM_COUNT:
+                    stat = trimCount;
+                    break;
+                case Constants.STAT_MULTILRUCACHE_SEGMENT_LIST_LENGTH:
+                    stat = new Integer[lists.length];
+                    for (int i = 0; i < lists.length; i++) {
+                        ((Integer[]) stat)[i] = listsLength[i];
+                    }
+                    break;
             }
         }
 
@@ -319,18 +316,18 @@ public class MultiLruCache extends BaseCache {
      * @return a Map of stats
      * See also: Constant.java for the keys
      */
-    public Map getStats() {
-        Map stats = super.getStats();
+    public Map<String, Object> getStats() {
+        Map<String, Object> stats = super.getStats();
 
         stats.put(Constants.STAT_MULTILRUCACHE_SEGMENT_SIZE,
-                  Integer.valueOf(segmentSize));
+                segmentSize);
         for (int i = 0; i < lists.length; i++) {
             stats.put(Constants.STAT_MULTILRUCACHE_SEGMENT_LIST_LENGTH + "["
                       + i + "]:",
-                      Integer.valueOf(listsLength[i]));
+                    listsLength[i]);
         }
         stats.put(Constants.STAT_MULTILRUCACHE_TRIM_COUNT,
-                  Integer.valueOf(trimCount));
+                trimCount);
         return stats;
     }
 

@@ -37,11 +37,12 @@
  * only if the new code is made subject to such option by the copyright
  * holder.
  */
-// Portions Copyright [2016-2017] [Payara Foundation and/or its affiliates]
+// Portions Copyright [2016-2018] [Payara Foundation and/or its affiliates]
 
 package com.sun.enterprise.util;
 
 import java.util.ArrayList;
+import java.util.List;
 
 /**
  * Useful utilities for Exceptions
@@ -50,7 +51,7 @@ import java.util.ArrayList;
 public final class ExceptionUtil
 {
     private final static String DS_FAILURE_MESSAGE = "java.sql.SQLException: Error in allocating a connection. Cause: Connection could not be allocated";
-  
+
     private ExceptionUtil()
     {
         // disallow instantiation
@@ -65,7 +66,7 @@ public final class ExceptionUtil
      */
     public static Throwable[] getCauses(final Throwable start)
     {
-        final ArrayList<Throwable> list = new ArrayList<Throwable>();
+        final List<Throwable> list = new ArrayList<>();
 
         boolean haveNonException = false;
 
@@ -115,7 +116,7 @@ public final class ExceptionUtil
      */
     public static String getStackTrace(Throwable t)
     {
-        final StringBuffer buf = new StringBuffer();
+        final StringBuilder buf = new StringBuilder();
         final StackTraceElement[] elems = t.getStackTrace();
 
         for (int i = 0; i < elems.length; ++i)

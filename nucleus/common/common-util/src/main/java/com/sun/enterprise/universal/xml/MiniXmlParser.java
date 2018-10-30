@@ -186,7 +186,7 @@ public class MiniXmlParser {
 
     /**
      * Gets the log file name for the DAS
-     * 
+     *
      * loggingConfig will return an IOException if there is no
      * logging properties file.
      *
@@ -207,10 +207,10 @@ public class MiniXmlParser {
         }
         return logFilename;
     }
-    
+
     /**
      * Gets the log file name for instances and clusters
-     * 
+     *
      * loggingConfig will return an IOException if there is no
      * logging properties file.
      *
@@ -218,7 +218,7 @@ public class MiniXmlParser {
      */
     public String getInstanceLogFilename() {
         String logFilename = null;
-        
+
         try {
             Map<String, String> map = loggingConfig.getLoggingProperties(configRef);
             String logFileContains = "${com.sun.aas.instanceName}";
@@ -311,14 +311,14 @@ public class MiniXmlParser {
             final String aOldPattern,
             final String aNewPattern
     ) {
-        final StringBuffer result = new StringBuffer();
+        final StringBuilder result = new StringBuilder();
         //startIdx and idxOld delimit various chunks of aInput; these
         //chunks always end where aOldPattern begins
         int startIdx = 0;
         int idxOld = 0;
         while ((idxOld = aInput.indexOf(aOldPattern, startIdx)) >= 0) {
             //grab a part of aInput which does not include aOldPattern
-            result.append(aInput.substring(startIdx, idxOld));
+            result.append(aInput, startIdx, idxOld);
             //add aNewPattern to take place of aOldPattern
             result.append(aNewPattern);
 
@@ -663,7 +663,7 @@ public class MiniXmlParser {
      * The cursor will be pointing at the START_ELEMENT of name1 or name2 when it returns note that skipTree must be
      * called.  Otherwise we could be fooled by a sub-element with the same name as an outer element
      *
-     * @param nameArgs An array of eligible element names to skip to
+     * @param namesArgs An array of eligible element names to skip to
      * @throws XMLStreamException
      */
     private void skipTo(final String... namesArgs) throws XMLStreamException, EndDocumentException {

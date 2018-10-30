@@ -37,6 +37,7 @@
  * only if the new code is made subject to such option by the copyright
  * holder.
  */
+// Portions Copyright [2018] [Payara Foundation and/or its affiliates]
 
 package org.glassfish.common.util.timer;
 
@@ -176,7 +177,7 @@ public class TimerSchedule implements Serializable {
 
     public TimerSchedule second(String s) {
         assertNotEmpty(s, SECOND);
-        second_ = s.trim(); 
+        second_ = s.trim();
         return this;
     }
 
@@ -281,20 +282,17 @@ public class TimerSchedule implements Serializable {
     }
 
     public String getScheduleAsString() {
-        StringBuffer s = new StringBuffer()
-               .append(second_).append(" # ")
-               .append(minute_).append(" # ") 
-               .append( hour_).append(" # ") 
-               .append( dayOfMonth_).append(" # ") 
-               .append( month_).append(" # ") 
-               .append( dayOfWeek_).append(" # ") 
-               .append( year_).append(" # ") 
-               .append( timezone_).append(" # ") 
-               .append(((start_ == null) ? null : start_.getTime()))
-               .append(" # ") 
-               .append(((end_ == null) ? null : end_.getTime()));
-
-        return s.toString();
+        return second_ + " # " +
+                minute_ + " # " +
+                hour_ + " # " +
+                dayOfMonth_ + " # " +
+                month_ + " # " +
+                dayOfWeek_ + " # " +
+                year_ + " # " +
+                timezone_ + " # " +
+                ((start_ == null) ? null : start_.getTime()) +
+                " # " +
+                ((end_ == null) ? null : end_.getTime());
     }
 
     public int hashCode() {
@@ -401,7 +399,7 @@ public class TimerSchedule implements Serializable {
             } else if (next.get(Calendar.YEAR) < year) {
                 // set to the beginning of the year
                 next.set(year, 0, 1, 0, 0, 0);
-                System.out.println("==> Year reset " + next.getTime()); 
+                System.out.println("==> Year reset " + next.getTime());
                 next = getNextTimeout(next, year);
             }
 
@@ -443,7 +441,7 @@ public class TimerSchedule implements Serializable {
             }
 
             if (dayOfWeek_.equals("*")) {
-                // Either dayOfMonth_ is specified, and we'll use it or 
+                // Either dayOfMonth_ is specified, and we'll use it or
                 // neither is specified and any one can be used.
                 //System.out.println("==> Processing DAY_OF_MONTH ...");
                 if(skipToNextValue(next, daysOfMonth, Calendar.DAY_OF_MONTH, Calendar.MONTH)) {
@@ -543,7 +541,7 @@ public class TimerSchedule implements Serializable {
      * Populate the BitSet where true bits represent set values.
      * Input data can be either a number or a case insensitive abbreviated name.
      */
-    private void parseNumbersOrNames(String s, BitSet bits, 
+    private void parseNumbersOrNames(String s, BitSet bits,
             int start, int size, boolean incrementAllowed, String field) {
         // All
         if (s.equals("*")) {
@@ -594,7 +592,7 @@ public class TimerSchedule implements Serializable {
 
         // Single value
         bits.set(getNumericValue(s, start, size, field));
-        
+
     }
 
     /**
@@ -687,7 +685,7 @@ public class TimerSchedule implements Serializable {
          } else {
              // Otherwise just remember - we'll process it later
              daysOfWeekOrRangesOfDaysInMonth.add(s.toLowerCase(Locale.ENGLISH));
-         } 
+         }
      }
 
     /**
@@ -725,13 +723,13 @@ public class TimerSchedule implements Serializable {
     }
 
     /**
-     * Adds a List of values that correspond to the specified range 
+     * Adds a List of values that correspond to the specified range
      */
     private void processRangeAsList(List list, String s, String field, Pattern pattern) {
         String[] arr = splitBy(s, rangeChar);
         int begin = parseInt(arr[0], field);
         int end = parseInt(arr[1], field);
-        if (begin > end || !pattern.matcher(arr[0]).matches() || 
+        if (begin > end || !pattern.matcher(arr[0]).matches() ||
                 !pattern.matcher(arr[1]).matches()) {
             throw new IllegalArgumentException("Invalid " + field + " range: " + s);
         }
@@ -761,7 +759,7 @@ public class TimerSchedule implements Serializable {
                 nextvalue = bits.nextSetBit(0);
             }
 
-            if (nextvalue == -1) 
+            if (nextvalue == -1)
                 throw new IllegalArgumentException("Should not happen - no value found");
 
             //System.out.println(".... seting " + field + " ... to ... " + nextvalue);
@@ -788,10 +786,10 @@ public class TimerSchedule implements Serializable {
     }
 
     /**
-     * Convert a String to a number. If the String represents a 
-     * number, return its int value. If the String represents a 
-     * (case insensitive) name of the day of the week or a month, 
-     * return the corresponding numeric value from the conversionTable. 
+     * Convert a String to a number. If the String represents a
+     * number, return its int value. If the String represents a
+     * (case insensitive) name of the day of the week or a month,
+     * return the corresponding numeric value from the conversionTable.
      * If field represents DAY_OF_WEEK, return the value from the conversionTable
      * that represents Calendar's value of the result.
      */
@@ -844,7 +842,7 @@ public class TimerSchedule implements Serializable {
     }
 
     /**
-     * Use preprocessed values to create a BitSet that represents set 
+     * Use preprocessed values to create a BitSet that represents set
      * days of this month.
      */
     private BitSet populateCurrentMonthBits(Calendar date) {
@@ -870,7 +868,7 @@ public class TimerSchedule implements Serializable {
     }
 
     /**
-     * Return day of the month that represents the specific occurance of 
+     * Return day of the month that represents the specific occurance of
      * this day of the week, like "2nd Mon" or "Last Wed" or part of a range
      * which in turn can be any valid option for dayOfMonth.
      */
@@ -899,7 +897,7 @@ public class TimerSchedule implements Serializable {
             // Calendar's value for that day.
             Integer weekday = conversionTable.get(arr[1]);
             assertValid(weekday, arr[1], DAY_OF_MONTH);
-             
+
             int day = conversionTable.get(weekday);
             return getDayForDayOfWeek(testdate, lastday, day, num);
         }
@@ -960,7 +958,7 @@ public class TimerSchedule implements Serializable {
         } else {
             //System.out.println("++++++++ getDayForDayOfMonth(" + date.getTime() + " - " + s + " ) "  + getDayForDayOfMonth(date, s));
             bits.set(getDayForDayOfMonth(date, s));
-        } 
+        }
     }
 
     /**
@@ -981,7 +979,7 @@ public class TimerSchedule implements Serializable {
         }
     }
 
-    /** 
+    /**
      * Convert a String to an int. Throws IllegalArgumentException instead of
      * the NumberFormatException.
      */
@@ -1009,7 +1007,7 @@ public class TimerSchedule implements Serializable {
         }
     }
 
-    /** Checks that a value is not null 
+    /** Checks that a value is not null
      */
     private void assertNotNull(Object s, String field) {
         if (s == null) {

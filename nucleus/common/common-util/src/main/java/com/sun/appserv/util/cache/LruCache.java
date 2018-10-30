@@ -37,13 +37,11 @@
  * only if the new code is made subject to such option by the copyright
  * holder.
  */
+// Portions Copyright [2018] [Payara Foundation and/or its affiliates]
 
 package com.sun.appserv.util.cache;
 
-import java.util.ArrayList;
-import java.util.Map;
-import java.util.Properties;
-import java.util.ResourceBundle;
+import java.util.*;
 
 /**
  * LRUCache
@@ -52,7 +50,7 @@ import java.util.ResourceBundle;
 public class LruCache extends BaseCache {
 
     // the item never expires
-    public static final long NO_TIMEOUT = -1;
+    protected static final long NO_TIMEOUT = -1;
 
     // LRU list
     protected LruCacheItem head;
@@ -87,7 +85,6 @@ public class LruCache extends BaseCache {
      * @param loadFactor the load factor
      * @param timeout to be used to trim the expired entries
      * @param props opaque list of properties for a given cache implementation
-     * @throws a generic Exception if the initialization failed
      */
     public void init(int maxEntries, long timeout, float loadFactor, Properties props) {
 
@@ -318,7 +315,7 @@ public class LruCache extends BaseCache {
         int count = 0;
         LruCacheItem item;
         long currentTime = System.currentTimeMillis();
-        ArrayList list = new ArrayList();
+        List<LruCacheItem> list = new ArrayList<>();
 
         synchronized (this) {
             // traverse LRU list till we reach a valid item; remove them at once
@@ -351,7 +348,7 @@ public class LruCache extends BaseCache {
 
         // trim the items from the BaseCache from the old tail backwards
         for (int index=list.size()-1; index >= 0; index--) {
-            trimItem((LruCacheItem) list.get(index));
+            trimItem(list.get(index));
         }
     }
 
@@ -371,20 +368,17 @@ public class LruCache extends BaseCache {
 
         if (stat == null && key != null) {
             if (key.equals(Constants.STAT_LRUCACHE_LIST_LENGTH))
-                stat = Integer.valueOf(listSize);
+                stat = listSize;
             else if (key.equals(Constants.STAT_LRUCACHE_TRIM_COUNT))
-                stat = Integer.valueOf(trimCount);
+                stat = trimCount;
         }
         return stat;
     }
 
-    public Map getStats() {
-        Map stats = super.getStats();
-        stats.put(Constants.STAT_LRUCACHE_LIST_LENGTH,
-                  Integer.valueOf(listSize));
-        stats.put(Constants.STAT_LRUCACHE_TRIM_COUNT,
-                  Integer.valueOf(trimCount));
-
+    public Map<String, Object> getStats() {
+        Map<String, Object> stats = super.getStats();
+        stats.put(Constants.STAT_LRUCACHE_LIST_LENGTH, listSize);
+        stats.put(Constants.STAT_LRUCACHE_TRIM_COUNT, trimCount);
         return stats;
     }
 

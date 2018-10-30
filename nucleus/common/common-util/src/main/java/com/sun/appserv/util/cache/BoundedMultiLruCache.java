@@ -37,6 +37,7 @@
  * only if the new code is made subject to such option by the copyright
  * holder.
  */
+// Portions Copyright [2018] [Payara Foundation and/or its affiliates]
 
 package com.sun.appserv.util.cache;
 
@@ -45,7 +46,6 @@ import java.text.MessageFormat;
 
 import java.util.Properties;
 import java.util.Map;
-import java.util.ResourceBundle;
 import java.util.Locale;
 
 /**
@@ -58,7 +58,7 @@ public class BoundedMultiLruCache extends MultiLruCache {
     // upper bound on the cache size
     protected long maxSize = Constants.DEFAULT_MAX_CACHE_SIZE;
     protected long currentSize;
-    private Object currentSizeLk = new Object();
+    private final Object currentSizeLk = new Object();
 
     /**
      * initialize the LRU cache
@@ -136,7 +136,7 @@ public class BoundedMultiLruCache extends MultiLruCache {
     protected void itemRefreshed(CacheItem item, int oldSize) {
         super.itemRefreshed(item, oldSize);
 
-        /** reduce the cache by the size of the size of the previous value 
+        /** reduce the cache by the size of the size of the previous value
          *  and increment by the value being refreshed with.
          */
         decrementCurrentSize(oldSize);
@@ -180,7 +180,7 @@ public class BoundedMultiLruCache extends MultiLruCache {
     }
 
     /**
-     * get generic stats from subclasses 
+     * get generic stats from subclasses
      */
 
     /**
@@ -194,31 +194,27 @@ public class BoundedMultiLruCache extends MultiLruCache {
 
         if (stat == null && key != null) {
             if (key.equals(Constants.STAT_BOUNDEDMULTILRUCACHE_CURRENT_SIZE))
-                stat = Long.valueOf(currentSize);
+                stat = currentSize;
             else if (key.equals(Constants.STAT_BOUNDEDMULTILRUCACHE_MAX_SIZE)) {
                 if (maxSize == Constants.DEFAULT_MAX_CACHE_SIZE)
                     stat = Constants.STAT_DEFAULT;
                 else
-                    stat = Long.valueOf(maxSize);
+                    stat = maxSize;
             }
         }
 
         return stat;
     }
 
-    public Map getStats() {
-        Map stats = super.getStats();
+    public Map<String, Object> getStats() {
+        Map<String, Object> stats = super.getStats();
 
         // cache size in KB
-        stats.put(Constants.STAT_BOUNDEDMULTILRUCACHE_CURRENT_SIZE,
-                  Long.valueOf(currentSize));
+        stats.put(Constants.STAT_BOUNDEDMULTILRUCACHE_CURRENT_SIZE, currentSize);
         if (maxSize == Constants.DEFAULT_MAX_CACHE_SIZE) {
-            stats.put(Constants.STAT_BOUNDEDMULTILRUCACHE_MAX_SIZE,
-                      Constants.STAT_DEFAULT);
-        }
-        else {
-            stats.put(Constants.STAT_BOUNDEDMULTILRUCACHE_MAX_SIZE,
-                      Long.valueOf(maxSize));
+            stats.put(Constants.STAT_BOUNDEDMULTILRUCACHE_MAX_SIZE, Constants.STAT_DEFAULT);
+        } else {
+            stats.put(Constants.STAT_BOUNDEDMULTILRUCACHE_MAX_SIZE, maxSize);
         }
         return stats;
     }
