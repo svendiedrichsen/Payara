@@ -1814,7 +1814,7 @@ public class WebappClassLoader
     /**
      * Stop the class loader.
      *
-     * @exception LifecycleException if a lifecycle error occurs
+     * @exception Exception if a lifecycle error occurs
      */
     public void stop() throws Exception {
 
@@ -2524,9 +2524,8 @@ public class WebappClassLoader
      * Clear the {@link ResourceBundle} cache of any bundles loaded by this
      * class loader or any class loader where this loader is a parent class
      * loader. Whilst {@link ResourceBundle#clearCache()} could be used there
-     * are complications around the
-     * {@link org.apache.jasper.servlet.JasperLoader} that mean a reflection
-     * based approach is more likely to be complete.
+     * are complications around the org.apache.jasper.servlet.JasperLoader
+     * that mean a reflection based approach is more likely to be complete.
      *
      * The ResourceBundle is using WeakReferences so it shouldn't be pinning the
      * class loader in memory. However, it is. Therefore clear ou the
@@ -2987,9 +2986,9 @@ public class WebappClassLoader
                             LogFacade.UNABLE_TO_CREATE,
                             resourceFile.getParentFile().toString());
                 }
-                try (InputStream is = jarFile.getInputStream(jarEntry2);
+                try (InputStream is = new BufferedInputStream(jarFile.getInputStream(jarEntry2));
                      FileOutputStream os = new FileOutputStream(resourceFile)) {
-                    byte[] buf = new byte[1024];
+                    byte[] buf = new byte[4096];
                     int read;
                     while ((read = is.read(buf)) > 0) {
                         os.write(buf, 0, read);
