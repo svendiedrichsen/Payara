@@ -64,20 +64,15 @@ import com.sun.appserv.ClassLoaderUtil;
 import com.sun.appserv.server.util.PreprocessorUtil;
 import com.sun.enterprise.deployment.Application;
 import com.sun.enterprise.deployment.util.DOLUtils;
-import com.sun.enterprise.util.io.FileUtils;
-import org.apache.naming.JndiPermission;
-import org.apache.naming.resources.DirContextURLStreamHandler;
-import org.apache.naming.resources.JarFileResourcesProvider;
-import org.apache.naming.resources.ProxyDirContext;
-import org.apache.naming.resources.WebDirContext;
-import org.apache.naming.resources.Resource;
-import org.apache.naming.resources.ResourceAttributes;
-import org.glassfish.api.deployment.InstrumentableClassLoader;
-import org.glassfish.web.util.ExceptionUtils;
-import org.glassfish.web.util.IntrospectionUtils;
-import org.glassfish.hk2.api.PreDestroy;
 import com.sun.enterprise.security.integration.DDPermissionsLoader;
 import com.sun.enterprise.security.integration.PermsHolder;
+import com.sun.enterprise.util.io.FileUtils;
+import org.apache.naming.JndiPermission;
+import org.apache.naming.resources.*;
+import org.glassfish.api.deployment.InstrumentableClassLoader;
+import org.glassfish.hk2.api.PreDestroy;
+import org.glassfish.web.util.ExceptionUtils;
+import org.glassfish.web.util.IntrospectionUtils;
 
 import javax.naming.Binding;
 import javax.naming.NameClassPair;
@@ -102,6 +97,7 @@ import java.text.SimpleDateFormat;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.jar.Attributes;
 import java.util.jar.Attributes.Name;
 import java.util.jar.JarEntry;
@@ -258,7 +254,7 @@ public class WebappClassLoader
     /**
      * Lock to synchronize closing and opening of jar
      */
-    protected final Object jarFilesLock = new Object();
+    protected final ReentrantReadWriteLock jarFilesRWLock = new ReentrantReadWriteLock();
 
     /**
      * The list of JARs, in the order they should be searched
@@ -295,7 +291,7 @@ public class WebappClassLoader
      */
     private ConcurrentLinkedQueue<Permission> permissionList =
         new ConcurrentLinkedQueue<Permission>();
-    
+
     //holder for declared and ee permissions
     private PermsHolder permissionsHolder;
 
@@ -383,7 +379,7 @@ public class WebappClassLoader
      * resources.
      */
     boolean antiJARLocking = false;
-    
+
     /**
      * Reference to the JDBC Leak Prevention class.
      * Held uniquely due to the way it is accessed outside the normal
@@ -478,9 +474,9 @@ public class WebappClassLoader
             this.clazz = clazz;
         }
 
-        public ClassLoader run() {       
+        public ClassLoader run() {
             return clazz.getClassLoader();
-        }           
+        }
     }
 
     // START PE 4985680
@@ -488,9 +484,9 @@ public class WebappClassLoader
      * Adds the given package name to the list of packages that may always be
      * overriden, regardless of whether they belong to a protected namespace
      */
-    public synchronized void addOverridablePackage(String packageName){
+    public void addOverridablePackage(String packageName){
         if (overridablePackages == null){
-            overridablePackages = new ConcurrentLinkedQueue<String>();
+            overridablePackages = new ConcurrentLinkedQueue<>();
         }
         overridablePackages.add(packageName);
     }
@@ -614,7 +610,7 @@ public class WebappClassLoader
         }
 
         if (securityManager != null) {
-            
+
             securityManager.checkSecurityAccess(
                     DDPermissionsLoader.SET_EE_POLICY);
 
@@ -665,12 +661,12 @@ public class WebappClassLoader
             permissionList.add(permission);
         }
     }
-    
-    
+
+
     @Override
-    public void addDeclaredPermissions(PermissionCollection declaredPc 
+    public void addDeclaredPermissions(PermissionCollection declaredPc
             ) throws SecurityException {
-        
+
         if (securityManager != null) {
             securityManager.checkSecurityAccess(
                     DDPermissionsLoader.SET_EE_POLICY);
@@ -678,11 +674,11 @@ public class WebappClassLoader
             permissionsHolder.setDeclaredPermissions(declaredPc);
         }
     }
-    
+
     @Override
-    public void addEEPermissions(PermissionCollection eePc) 
+    public void addEEPermissions(PermissionCollection eePc)
          throws SecurityException {
-        
+
         if (securityManager != null) {
             securityManager.checkSecurityAccess(
                     DDPermissionsLoader.SET_EE_POLICY);
@@ -829,8 +825,7 @@ public class WebappClassLoader
 
     }
 
-
-    public synchronized void addJar(String jar, JarFile jarFile, File file)
+    public void addJar(String jar, JarFile jarFile, File file)
         throws IOException {
 
         if (jar == null)
@@ -843,60 +838,66 @@ public class WebappClassLoader
         if (logger.isLoggable(Level.FINER))
             logger.log(Level.FINER, "addJar(" + jar + ")");
 
-        // See IT 11417
-        super.addURL(getURL(file));
-
-        int i;
-
-        if ((jarPath != null) && (jar.startsWith(jarPath))) {
-
-            String jarName = jar.substring(jarPath.length());
-            while (jarName.startsWith("/")) {
-                jarName = jarName.substring(1);
-            }
-            jarNames.add(jarName);
-        }
-
+        final ReentrantReadWriteLock.WriteLock writeLock = jarFilesRWLock.writeLock();
         try {
+            writeLock.lock();
+            // See IT 11417
+            super.addURL(getURL(file));
 
-            // Register the JAR for tracking
+            int i;
 
-            long lastModified =
-                ((ResourceAttributes) resources.getAttributes(jar))
-                .getLastModified();
+            if ((jarPath != null) && (jar.startsWith(jarPath))) {
 
-            String[] result = new String[paths.length + 1];
-            for (i = 0; i < paths.length; i++) {
-                result[i] = paths[i];
+                String jarName = jar.substring(jarPath.length());
+                while (jarName.startsWith("/")) {
+                    jarName = jarName.substring(1);
+                }
+                jarNames.add(jarName);
             }
-            result[paths.length] = jar;
-            paths = result;
 
-            long[] result3 = new long[lastModifiedDates.length + 1];
-            for (i = 0; i < lastModifiedDates.length; i++) {
-                result3[i] = lastModifiedDates[i];
+            try {
+
+                // Register the JAR for tracking
+
+                long lastModified =
+                    ((ResourceAttributes) resources.getAttributes(jar))
+                    .getLastModified();
+
+                String[] result = new String[paths.length + 1];
+                for (i = 0; i < paths.length; i++) {
+                    result[i] = paths[i];
+                }
+                result[paths.length] = jar;
+                paths = result;
+
+                long[] result3 = new long[lastModifiedDates.length + 1];
+                for (i = 0; i < lastModifiedDates.length; i++) {
+                    result3[i] = lastModifiedDates[i];
+                }
+                result3[lastModifiedDates.length] = lastModified;
+                lastModifiedDates = result3;
+
+            } catch (NamingException e) {
+                // Ignore
             }
-            result3[lastModifiedDates.length] = lastModified;
-            lastModifiedDates = result3;
 
-        } catch (NamingException e) {
-            // Ignore
-        }
+            JarFile[] result2 = new JarFile[jarFiles.length + 1];
+            for (i = 0; i < jarFiles.length; i++) {
+                result2[i] = jarFiles[i];
+            }
+            result2[jarFiles.length] = jarFile;
+            jarFiles = result2;
 
-        JarFile[] result2 = new JarFile[jarFiles.length + 1];
-        for (i = 0; i < jarFiles.length; i++) {
-            result2[i] = jarFiles[i];
+            // Add the file to the list
+            File[] result4 = new File[jarRealFiles.length + 1];
+            for (i = 0; i < jarRealFiles.length; i++) {
+                result4[i] = jarRealFiles[i];
+            }
+            result4[jarRealFiles.length] = file;
+            jarRealFiles = result4;
+        } finally {
+            writeLock.unlock();
         }
-        result2[jarFiles.length] = jarFile;
-        jarFiles = result2;
-
-        // Add the file to the list
-        File[] result4 = new File[jarRealFiles.length + 1];
-        for (i = 0; i < jarRealFiles.length; i++) {
-            result4[i] = jarRealFiles[i];
-        }
-        result4[jarRealFiles.length] = file;
-        jarRealFiles = result4;
     }
 
 
@@ -909,91 +910,96 @@ public class WebappClassLoader
         if (logger.isLoggable(Level.FINER))
             logger.log(Level.FINER, "modified()");
 
-        // Checking for modified loaded resources
-        int length = paths.length;
+        final ReentrantReadWriteLock.ReadLock readLock = jarFilesRWLock.readLock();
+        try {
+            readLock.lock();
+            // Checking for modified loaded resources
+            int length = paths.length;
 
-        // A rare race condition can occur in the updates of the two arrays
-        // It's totally ok if the latest class added is not checked (it will
-        // be checked the next time
-        int length2 = lastModifiedDates.length;
-        if (length > length2)
-            length = length2;
+            // A rare race condition can occur in the updates of the two arrays
+            // It's totally ok if the latest class added is not checked (it will
+            // be checked the next time
+            int length2 = lastModifiedDates.length;
+            if (length > length2)
+                length = length2;
 
-        for (int i = 0; i < length; i++) {
-            try {
-                long lastModified =
-                    ((ResourceAttributes) resources.getAttributes(paths[i]))
-                    .getLastModified();
-                if (lastModified != lastModifiedDates[i]) {
-                        if (logger.isLoggable(Level.FINER))
-                            logger.log(Level.FINER, "  Resource '" + paths[i]
-                                  + "' was modified; Date is now: "
-                                  + new java.util.Date(lastModified) + " Was: "
-                                  + new java.util.Date(lastModifiedDates[i]));
-                    return (true);
-                }
-            } catch (NamingException e) {
-                logger.log(Level.SEVERE, LogFacade.MISSING_RESOURCE, paths[i]);
-                return (true);
-            }
-        }
-
-        length = jarNames.size();
-
-        // Check if JARs have been added or removed
-        if (getJarPath() != null) {
-
-            try {
-                NamingEnumeration<Binding> enumeration =
-                    resources.listBindings(getJarPath());
-                int i = 0;
-                while (enumeration.hasMoreElements() && (i < length)) {
-                    NameClassPair ncPair = enumeration.nextElement();
-                    String name = ncPair.getName();
-                    // Ignore non JARs present in the lib folder
-// START OF IASRI 4657979
-                    if (!name.endsWith(".jar") && !name.endsWith(".zip"))
-// END OF IASRI 4657979
-                        continue;
-                    if (!name.equals(jarNames.get(i))) {
-                        // Missing JAR
-                        logger.log(Level.FINER, "    Additional JARs have been added : '"
-                                 + name + "'");
+            for (int i = 0; i < length; i++) {
+                try {
+                    long lastModified =
+                        ((ResourceAttributes) resources.getAttributes(paths[i]))
+                        .getLastModified();
+                    if (lastModified != lastModifiedDates[i]) {
+                            if (logger.isLoggable(Level.FINER))
+                                logger.log(Level.FINER, "  Resource '" + paths[i]
+                                      + "' was modified; Date is now: "
+                                      + new java.util.Date(lastModified) + " Was: "
+                                      + new java.util.Date(lastModifiedDates[i]));
                         return (true);
                     }
-                    i++;
-                }
-                if (enumeration.hasMoreElements()) {
-                    while (enumeration.hasMoreElements()) {
-                        NameClassPair ncPair = enumeration.nextElement();
-                        String name = ncPair.getName();
-                        // Additional non-JAR files are allowed
-// START OF IASRI 4657979
-                        if (name.endsWith(".jar") || name.endsWith(".zip")) {
-// END OF IASRI 4657979
-                            // There was more JARs
-                            logger.log(Level.FINER, "    Additional JARs have been added");
-                            return (true);
-                        }
-                    }
-                } else if (i < jarNames.size()) {
-                    // There was less JARs
-                    logger.log(Level.FINER, "    Additional JARs have been added");
+                } catch (NamingException e) {
+                    logger.log(Level.SEVERE, LogFacade.MISSING_RESOURCE, paths[i]);
                     return (true);
                 }
-            } catch (NamingException e) {
-                if (logger.isLoggable(Level.FINER))
-                    logger.log(Level.FINER, "    Failed tracking modifications of '"
-                        + getJarPath() + "'");
-            } catch (ClassCastException e) {
-                logger.log(Level.SEVERE, LogFacade.FAILED_TRACKING_MODIFICATIONS, new Object[]{getJarPath(), e.getMessage()});
             }
 
+            length = jarNames.size();
+
+            // Check if JARs have been added or removed
+            if (getJarPath() != null) {
+
+                try {
+                    NamingEnumeration<Binding> enumeration =
+                        resources.listBindings(getJarPath());
+                    int i = 0;
+                    while (enumeration.hasMoreElements() && (i < length)) {
+                        NameClassPair ncPair = enumeration.nextElement();
+                        String name = ncPair.getName();
+                        // Ignore non JARs present in the lib folder
+    // START OF IASRI 4657979
+                        if (!name.endsWith(".jar") && !name.endsWith(".zip"))
+    // END OF IASRI 4657979
+                            continue;
+                        if (!name.equals(jarNames.get(i))) {
+                            // Missing JAR
+                            logger.log(Level.FINER, "    Additional JARs have been added : '"
+                                     + name + "'");
+                            return (true);
+                        }
+                        i++;
+                    }
+                    if (enumeration.hasMoreElements()) {
+                        while (enumeration.hasMoreElements()) {
+                            NameClassPair ncPair = enumeration.nextElement();
+                            String name = ncPair.getName();
+                            // Additional non-JAR files are allowed
+    // START OF IASRI 4657979
+                            if (name.endsWith(".jar") || name.endsWith(".zip")) {
+    // END OF IASRI 4657979
+                                // There was more JARs
+                                logger.log(Level.FINER, "    Additional JARs have been added");
+                                return (true);
+                            }
+                        }
+                    } else if (i < jarNames.size()) {
+                        // There was less JARs
+                        logger.log(Level.FINER, "    Additional JARs have been added");
+                        return (true);
+                    }
+                } catch (NamingException e) {
+                    if (logger.isLoggable(Level.FINER))
+                        logger.log(Level.FINER, "    Failed tracking modifications of '"
+                            + getJarPath() + "'");
+                } catch (ClassCastException e) {
+                    logger.log(Level.SEVERE, LogFacade.FAILED_TRACKING_MODIFICATIONS, new Object[]{getJarPath(), e.getMessage()});
+                }
+
+            }
+
+            // No classes have been modified
+            return (false);
+        } finally {
+            readLock.unlock();
         }
-
-        // No classes have been modified
-        return (false);
-
     }
 
 
@@ -1007,17 +1013,12 @@ public class WebappClassLoader
         sb.append(delegate);
         if (repositories != null) {
             sb.append("; repositories=");
-            for (int i = 0; i < repositories.length; i++) {
-                sb.append(repositories[i]);
-                if (i != (repositories.length-1)) {
-                    sb.append(",");
-                }
-            }
+            sb.append(String.join(",", repositories));
         }
         sb.append(") ");
         sb.append("Object: ").append(Integer.toHexString(System.identityHashCode(this)));
         sb.append(" Created: ").append(SimpleDateFormat.getDateTimeInstance().format(creationTime));
-        return (sb.toString());
+        return sb.toString();
     }
 
 
@@ -1676,7 +1677,7 @@ public class WebappClassLoader
         String codeUrl = codeSource.getLocation().toString();
         PermissionCollection pc = loaderPC.get(codeUrl);
         if (pc == null) {
-            pc = new Permissions();            
+            pc = new Permissions();
 
             PermissionCollection spc = super.getPermissions(codeSource);
 
@@ -1684,16 +1685,16 @@ public class WebappClassLoader
             while (permsa.hasMoreElements()) {
                 Permission p = permsa.nextElement();
                 pc.add(p);
-            }                 
-                
+            }
+
             Iterator<Permission> perms = permissionList.iterator();
             while (perms.hasNext()) {
                 Permission p = perms.next();
                 pc.add(p);
             }
-            
+
             //get the declared and EE perms
-            PermissionCollection pc1 = 
+            PermissionCollection pc1 =
                 permissionsHolder.getPermissions(codeSource, null);
             if  (pc1 != null) {
                 Enumeration<Permission> dperms =  pc1.elements();
@@ -1702,8 +1703,8 @@ public class WebappClassLoader
                     pc.add(p);
                 }
             }
-                
-            PermissionCollection tmpPc = loaderPC.putIfAbsent(codeUrl,pc);                
+
+            PermissionCollection tmpPc = loaderPC.putIfAbsent(codeUrl,pc);
             if (tmpPc != null) {
                 pc = tmpPc;
             }
@@ -1720,48 +1721,50 @@ public class WebappClassLoader
      * @return the search path of URLs for loading classes and resources.
      */
     @Override
-    public synchronized URL[] getURLs() {
+    public URL[] getURLs() {
 
         if (repositoryURLs != null) {
             return repositoryURLs;
         }
 
-        URL[] external = super.getURLs();
-
-        int filesLength = files.length;
-        int jarFilesLength = jarRealFiles.length;
-        int length = filesLength + jarFilesLength + external.length;
-        int i;
+        final ReentrantReadWriteLock.ReadLock readLock = jarFilesRWLock.readLock();
 
         try {
+            readLock.lock();
+            URL[] external = super.getURLs();
 
-            ArrayList<URL> urls = new ArrayList<URL>();
-            for (i = 0; i < length; i++) {
-                if (i < filesLength) {
-                    urls.add(i, getURL(files[i]));
-                } else if (i < filesLength + jarFilesLength) {
-                    urls.add(i, getURL(jarRealFiles[i - filesLength]));
-                } else {
-                    urls.add(i, external[i - filesLength - jarFilesLength]);
+            int filesLength = files.length;
+            int jarFilesLength = jarRealFiles.length;
+            int length = filesLength + jarFilesLength + external.length;
+            int i;
+
+            try {
+
+                ArrayList<URL> urls = new ArrayList<URL>();
+                for (i = 0; i < length; i++) {
+                    if (i < filesLength) {
+                        urls.add(i, getURL(files[i]));
+                    } else if (i < filesLength + jarFilesLength) {
+                        urls.add(i, getURL(jarRealFiles[i - filesLength]));
+                    } else {
+                        urls.add(i, external[i - filesLength - jarFilesLength]);
+                    }
                 }
+
+                repositoryURLs = removeDuplicate(urls);
+
+            } catch (MalformedURLException e) {
+                repositoryURLs = new URL[0];
             }
-
-            repositoryURLs = removeDuplicate(urls);
-
-        } catch (MalformedURLException e) {
-            repositoryURLs = new URL[0];
+        } finally {
+            readLock.unlock();
         }
-
         return repositoryURLs;
-
     }
 
     @SuppressWarnings("unchecked")
-    private URL[] removeDuplicate(ArrayList<URL> urls) {
-        HashSet h = new HashSet(urls);
-        urls.clear();
-        urls.addAll(h);
-        return urls.toArray(new URL[urls.size()]);
+    private URL[] removeDuplicate(List<URL> urls) {
+        return new HashSet<>(urls).toArray(new URL[0]);
     }
 
     // ------------------------------------------------------ Lifecycle Methods
@@ -1784,7 +1787,7 @@ public class WebappClassLoader
         }
 
         addOverridablePackage("com.sun.faces.extensions");
-        
+
         permissionsHolder = new PermsHolder();
     }
 
@@ -1846,21 +1849,26 @@ public class WebappClassLoader
 
         started = false;
 
-        int length = files.length;
-        for (int i = 0; i < length; i++) {
-            files[i] = null;
-        }
-
-        length = jarFiles.length;
-        for (int i = 0; i < length; i++) {
-            try {
-                if (jarFiles[i] != null) {
-                    jarFiles[i].close();
-                }
-            } catch (IOException e) {
-                // Ignore
+        final ReentrantReadWriteLock.WriteLock writeLock = jarFilesRWLock.writeLock();
+        try {
+            writeLock.lock();
+            int length = files.length;
+            for (int i = 0; i < length; i++) {
+                files[i] = null;
             }
-            jarFiles[i] = null;
+            length = jarFiles.length;
+            for (int i = 0; i < length; i++) {
+                try {
+                    if (jarFiles[i] != null) {
+                        jarFiles[i].close();
+                    }
+                } catch (IOException e) {
+                    // Ignore
+                }
+                jarFiles[i] = null;
+            }
+        } finally {
+            writeLock.unlock();
         }
 
         try {
@@ -1891,7 +1899,7 @@ public class WebappClassLoader
         if (loaderDir != null) {
             deleteDir(loaderDir);
         }
-        
+
         DirContextURLStreamHandler.unbind(this);
     }
 
@@ -1902,7 +1910,9 @@ public class WebappClassLoader
      */
     public void closeJARs(boolean force) {
         if (jarFiles.length > 0) {
-            synchronized (jarFilesLock) {
+            final ReentrantReadWriteLock.WriteLock writeLock = jarFilesRWLock.writeLock();
+            try {
+                writeLock.lock();
                 if (force || (System.currentTimeMillis()
                               > (lastJarAccessed + 90000))) {
                     for (int i = 0; i < jarFiles.length; i++) {
@@ -1917,7 +1927,7 @@ public class WebappClassLoader
                             }
                         }
                     }
-                    
+
                     try {
                         // aggressively close parent jars
 
@@ -1941,10 +1951,11 @@ public class WebappClassLoader
                     } catch (Exception ex) {
                         Logger.getLogger(WebappClassLoader.class.getName()).log(Level.SEVERE, null, ex);
                     }
-                    
-                    
                 }
+            } finally {
+                writeLock.unlock();
             }
+
         }
     }
 
@@ -2026,7 +2037,7 @@ public class WebappClassLoader
                         defineClass("org.glassfish.web.loader.JdbcLeakPrevention",
                             classBytes, 0, offset, this.getClass().getProtectionDomain());
                 } else {
-                    logger.log(Level.FINE, getString(LogFacade.LEAK_PREVENTION_JDBC_REUSE, contextName));   
+                    logger.log(Level.FINE, getString(LogFacade.LEAK_PREVENTION_JDBC_REUSE, contextName));
                 }
             }
             Object obj = jdbcLeakPreventionResourceClass.newInstance();
@@ -2607,7 +2618,9 @@ public class WebappClassLoader
      */
     protected boolean openJARs() {
         if (started && (jarFiles.length > 0)) {
-            synchronized (jarFilesLock) {
+            final ReentrantReadWriteLock.WriteLock writeLock = jarFilesRWLock.writeLock();
+            try {
+                writeLock.lock();
                 lastJarAccessed = System.currentTimeMillis();
                 if (jarFiles[0] == null) {
                     for (int i = 0; i < jarFiles.length; i++) {
@@ -2628,6 +2641,8 @@ public class WebappClassLoader
                         }
                     }
                 }
+            } finally {
+                writeLock.unlock();
             }
         }
         return true;
@@ -2757,9 +2772,7 @@ public class WebappClassLoader
         entry = findResourceInternalFromRepositories(name, path);
 
         if (entry == null) {
-            synchronized (jarFiles) {
-                entry = findResourceInternalFromJars(name, path);
-            }
+            entry = findResourceInternalFromJars(name, path);
         }
 
         if (entry == null) {
@@ -2885,41 +2898,47 @@ public class WebappClassLoader
             return null;
         }
 
-        int jarFilesLength = jarFiles.length;
+        final ReentrantReadWriteLock.ReadLock readLock = jarFilesRWLock.readLock();
+        try {
+            readLock.lock();
+            int jarFilesLength = jarFiles.length;
 
-        for (int i=0; (entry == null) && (i < jarFilesLength); i++) {
-            jarEntry = jarFiles[i].getJarEntry(path);
+            for (int i=0; (entry == null) && (i < jarFilesLength); i++) {
+                jarEntry = jarFiles[i].getJarEntry(path);
 
-            if (jarEntry != null) {
+                if (jarEntry != null) {
 
-                entry = new ResourceEntry();
-                try {
-                    entry.codeBase = getURL(jarRealFiles[i]);
-                    String jarFakeUrl = getURI(jarRealFiles[i]).toString();
-                    jarFakeUrl = "jar:" + jarFakeUrl + "!/" + path;
-                    entry.source = new URL(jarFakeUrl);
-                    entry.lastModified = jarRealFiles[i].lastModified();
-                } catch (MalformedURLException e) {
-                    return null;
-                }
+                    entry = new ResourceEntry();
+                    try {
+                        entry.codeBase = getURL(jarRealFiles[i]);
+                        String jarFakeUrl = getURI(jarRealFiles[i]).toString();
+                        jarFakeUrl = "jar:" + jarFakeUrl + "!/" + path;
+                        entry.source = new URL(jarFakeUrl);
+                        entry.lastModified = jarRealFiles[i].lastModified();
+                    } catch (MalformedURLException e) {
+                        return null;
+                    }
 
-                contentLength = (int) jarEntry.getSize();
-                try {
-                    entry.manifest = jarFiles[i].getManifest();
-                    binaryStream = jarFiles[i].getInputStream(jarEntry);
-                } catch (IOException e) {
-                    return null;
-                }
+                    contentLength = (int) jarEntry.getSize();
+                    try {
+                        entry.manifest = jarFiles[i].getManifest();
+                        binaryStream = jarFiles[i].getInputStream(jarEntry);
+                    } catch (IOException e) {
+                        return null;
+                    }
 
-                // Extract resources contained in JAR to the workdir
-                if (antiJARLocking && !(path.endsWith(".class"))) {
-                    File resourceFile = new File
-                        (loaderDir, jarEntry.getName());
-                    if (!resourceFile.exists()) {
-                        extractResources();
+                    // Extract resources contained in JAR to the workdir
+                    if (antiJARLocking && !(path.endsWith(".class"))) {
+                        File resourceFile = new File
+                            (loaderDir, jarEntry.getName());
+                        if (!resourceFile.exists()) {
+                            extractResources();
+                        }
                     }
                 }
             }
+        } finally {
+            readLock.unlock();
         }
 
         if (entry != null) {
@@ -2929,30 +2948,33 @@ public class WebappClassLoader
         return entry;
     }
 
-    private synchronized void extractResources() {
+    private void extractResources() {
         if (!antiJARLocking || resourcesExtracted) {
             return;
         }
 
-        for (int i = jarFiles.length - 1; i >= 0; i--) {
-            extractResource(jarFiles[i]);
+        final ReentrantReadWriteLock.ReadLock readLock = jarFilesRWLock.readLock();
+        try {
+            readLock.lock();
+            for (int i = jarFiles.length - 1; i >= 0; i--) {
+                extractResource(jarFiles[i]);
+            }
+        } finally {
+            readLock.unlock();
         }
 
         resourcesExtracted = true;
     }
 
     private void extractResource(JarFile jarFile) {
-        byte[] buf = new byte[1024];
         Enumeration<JarEntry> entries = jarFile.entries();
         while (entries.hasMoreElements()) {
             JarEntry jarEntry2 = entries.nextElement();
             if (!(jarEntry2.isDirectory())
                 && (!jarEntry2.getName().endsWith(".class"))) {
-                File resourceFile = new File
-                    (loaderDir, jarEntry2.getName());
+                File resourceFile = new File(loaderDir, jarEntry2.getName());
                 try {
-                    if (!resourceFile.getCanonicalPath().startsWith(
-                            canonicalLoaderDir)) {
+                    if (!resourceFile.getCanonicalPath().startsWith(canonicalLoaderDir)) {
                         throw new IllegalArgumentException(getString(
                                 LogFacade.ILLEGAL_JAR_PATH, jarEntry2.getName()));
                     }
@@ -2965,34 +2987,15 @@ public class WebappClassLoader
                             LogFacade.UNABLE_TO_CREATE,
                             resourceFile.getParentFile().toString());
                 }
-
-                FileOutputStream os = null;
-                InputStream is = null;
-                try {
-                    is = jarFile.getInputStream(jarEntry2);
-                    os = new FileOutputStream(resourceFile);
-                    while (true) {
-                        int n = is.read(buf);
-                        if (n <= 0) {
-                            break;
-                        }
-                        os.write(buf, 0, n);
+                try (InputStream is = jarFile.getInputStream(jarEntry2);
+                     FileOutputStream os = new FileOutputStream(resourceFile)) {
+                    byte[] buf = new byte[1024];
+                    int read;
+                    while ((read = is.read(buf)) > 0) {
+                        os.write(buf, 0, read);
                     }
                 } catch (IOException e) {
                     // Ignore
-                } finally {
-                    try {
-                        if (is != null) {
-                            is.close();
-                        }
-                    } catch (IOException e) {
-                    }
-                    try {
-                        if (os != null) {
-                            os.close();
-                        }
-                    } catch (IOException e) {
-                    }
                 }
             }
         }
@@ -3019,24 +3022,15 @@ public class WebappClassLoader
 
         byte[] binaryContent = new byte[contentLength];
 
-        try {
+        try (final InputStream in = binaryStream) {
             int pos = 0;
-
-            while (true) {
-                int n = binaryStream.read(binaryContent, pos,
-                                          binaryContent.length - pos);
-                if (n <= 0)
-                    break;
-                pos += n;
+            int read;
+            while ((read = in.read(binaryContent, pos,binaryContent.length - pos)) > 0) {
+                pos += read;
             }
         } catch (Exception e) {
             logger.log(Level.WARNING, getString(LogFacade.READ_CLASS_ERROR, name), e);
             return;
-        } finally {
-            try {
-                binaryStream.close();
-            } catch(IOException e) {
-            }
         }
 
         // START OF IASRI 4709374
@@ -3065,7 +3059,7 @@ public class WebappClassLoader
     protected boolean isPackageSealed(String name, Manifest man) {
 
         String path = name.replace('.', '/') + '/';
-        Attributes attr = man.getAttributes(path); 
+        Attributes attr = man.getAttributes(path);
         String sealed = null;
         if (attr != null) {
             sealed = attr.getValue(Name.SEALED);
@@ -3431,7 +3425,7 @@ public class WebappClassLoader
     /**
      * To determine whether one should delegate to parent for loading
      * resource of the given resource name.
-     * 
+     *
      * @param name
      */
     private boolean isResourceDelegate(String name) {
