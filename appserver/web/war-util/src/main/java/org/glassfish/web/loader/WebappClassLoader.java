@@ -91,6 +91,8 @@ import java.lang.reflect.Modifier;
 import java.net.MalformedURLException;
 import java.net.URL;
 import java.net.URLClassLoader;
+import java.nio.file.Files;
+import java.nio.file.StandardCopyOption;
 import java.security.*;
 import java.text.MessageFormat;
 import java.text.SimpleDateFormat;
@@ -2986,13 +2988,8 @@ public class WebappClassLoader
                             LogFacade.UNABLE_TO_CREATE,
                             resourceFile.getParentFile().toString());
                 }
-                try (InputStream is = new BufferedInputStream(jarFile.getInputStream(jarEntry2));
-                     FileOutputStream os = new FileOutputStream(resourceFile)) {
-                    byte[] buf = new byte[4096];
-                    int read;
-                    while ((read = is.read(buf)) > 0) {
-                        os.write(buf, 0, read);
-                    }
+                try (InputStream is = new BufferedInputStream(jarFile.getInputStream(jarEntry2))) {
+                    Files.copy(is, resourceFile.toPath(), StandardCopyOption.REPLACE_EXISTING);
                 } catch (IOException e) {
                     // Ignore
                 }
