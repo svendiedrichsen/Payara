@@ -574,8 +574,13 @@ public class WebappClassLoader
 
     @Override
     public JarFile[] getJarFiles() {
-        if (!openJARs()) {
-            return null;
+        try {
+            jarFilesRWLock.writeLock().lock();
+            if (!openJARs()) {
+                return null;
+            }
+        } finally {
+            jarFilesRWLock.writeLock().unlock();
         }
         return jarFiles;
     }
@@ -2572,31 +2577,25 @@ public class WebappClassLoader
      */
     protected boolean openJARs() {
         if (started && (jarFiles.length > 0)) {
-            final ReentrantReadWriteLock.WriteLock writeLock = jarFilesRWLock.writeLock();
-            try {
-                writeLock.lock();
-                lastJarAccessed = System.currentTimeMillis();
-                if (jarFiles[0] == null) {
-                    for (int i = 0; i < jarFiles.length; i++) {
-                        try {
-                            jarFiles[i] = new JarFile(jarRealFiles[i]);
-                        } catch (IOException e) {
-                            if (logger.isLoggable(Level.FINE)) {
-                                logger.log(Level.FINE, "Failed to open JAR", e);
-                            }
-                            for (int j = 0; j < i; j++) {
-                                try {
-                                    jarFiles[j].close();
-                                } catch (Throwable t) {
-                                    // Ignore
-                                }
-                            }
-                            return false;
+            lastJarAccessed = System.currentTimeMillis();
+            if (jarFiles[0] == null) {
+                for (int i = 0; i < jarFiles.length; i++) {
+                    try {
+                        jarFiles[i] = new JarFile(jarRealFiles[i]);
+                    } catch (IOException e) {
+                        if (logger.isLoggable(Level.FINE)) {
+                            logger.log(Level.FINE, "Failed to open JAR", e);
                         }
+                        for (int j = 0; j < i; j++) {
+                            try {
+                                jarFiles[j].close();
+                            } catch (Throwable t) {
+                                // Ignore
+                            }
+                        }
+                        return false;
                     }
                 }
-            } finally {
-                writeLock.unlock();
             }
         }
         return true;
@@ -2848,13 +2847,16 @@ public class WebappClassLoader
         int contentLength = -1;
         InputStream binaryStream = null;
 
-        if (!openJARs()){
-            return null;
-        }
-
-        final ReentrantReadWriteLock.ReadLock readLock = jarFilesRWLock.readLock();
         try {
-            readLock.lock();
+            jarFilesRWLock.writeLock().lock();
+            if (!openJARs()){
+                return null;
+            }
+            jarFilesRWLock.readLock().lock();
+        } finally {
+            jarFilesRWLock.writeLock().unlock();
+        }
+        try {
             int jarFilesLength = jarFiles.length;
 
             for (int i=0; (entry == null) && (i < jarFilesLength); i++) {
@@ -2891,15 +2893,13 @@ public class WebappClassLoader
                     }
                 }
             }
+            if (entry != null) {
+                readEntryData(entry, name, binaryStream, contentLength, jarEntry);
+            }
+            return entry;
         } finally {
-            readLock.unlock();
+            jarFilesRWLock.readLock().unlock();
         }
-
-        if (entry != null) {
-            readEntryData(entry, name, binaryStream, contentLength, jarEntry);
-        }
-
-        return entry;
     }
 
     private void extractResources() {
