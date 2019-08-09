@@ -348,7 +348,7 @@ public class WebappClassLoader
      * they belong to a protected namespace (i.e., a namespace that may never
      * be overridden by any webapp)
      */
-    private ConcurrentLinkedQueue<String> overridablePackages;
+    private Queue<String> overridablePackages = new ConcurrentLinkedQueue<>();
     // END PE 4985680
 
     private volatile boolean resourcesExtracted = false;
@@ -478,12 +478,9 @@ public class WebappClassLoader
     // START PE 4985680
     /**
      * Adds the given package name to the list of packages that may always be
-     * overriden, regardless of whether they belong to a protected namespace
+     * overridden, regardless of whether they belong to a protected namespace
      */
     public void addOverridablePackage(String packageName){
-        if (overridablePackages == null){
-            overridablePackages = new ConcurrentLinkedQueue<>();
-        }
         overridablePackages.add(packageName);
     }
     // END PE 4985680
@@ -3109,15 +3106,13 @@ public class WebappClassLoader
         else
             return false;
 
-        if (overridablePackages != null){
-            for (String overridePkg : overridablePackages) {
-                if (packageName.startsWith(overridePkg))
-                    return false;
-            }
+        for (String overridePkg : overridablePackages) {
+            if (packageName.startsWith(overridePkg))
+                return false;
         }
 
-        for (int i = 0; i < packageTriggers.length; i++) {
-            if (packageName.startsWith(packageTriggers[i]))
+        for (String packageTrigger : packageTriggers) {
+            if (packageName.startsWith(packageTrigger))
                 return true;
         }
 
