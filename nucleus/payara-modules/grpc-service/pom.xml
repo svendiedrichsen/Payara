@@ -49,7 +49,7 @@
 
     <artifactId>grpc-service</artifactId>
     <packaging>glassfish-jar</packaging>
-    <name>Payara gRPC Server</name>
+    <name>Payara gRPC Service</name>
     <developers>
         <developer>
             <id>sdiedrichsen</id>
