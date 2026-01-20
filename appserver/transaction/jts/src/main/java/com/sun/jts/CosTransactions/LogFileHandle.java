@@ -62,21 +62,22 @@
 
 package com.sun.jts.CosTransactions;
 
-// Import required classes.
-
 import com.sun.enterprise.util.i18n.StringManager;
-import java.io.*;
 import org.glassfish.hk2.utilities.CleanerFactory;
-import java.sql.SQLException;
 
-/**This class encapsulates file I/O operations and the file handle.
+import java.io.File;
+import java.io.FileDescriptor;
+import java.io.IOException;
+import java.io.RandomAccessFile;
+
+/**
+ * This class encapsulates file I/O operations and the file handle.
  *
  * @version 0.01
  *
  * @author Simon Holdsworth, IBM Corporation
  *
- * @see
-*/
+ */
 //----------------------------------------------------------------------------
 // CHANGE HISTORY
 //
@@ -87,39 +88,48 @@ import java.sql.SQLException;
 class LogFileHandle {
     private static final StringManager sm = StringManager.getManager(LogFileHandle.class);
 
-    /**The log file should be accessed in read only mode.
+    /**
+     * The log file should be accessed in read only mode.
      */
     final static int OPEN_RDONLY = 0x00000001;
 
-    /**The log file should be accessed in read/write mode.
+    /**
+     * The log file should be accessed in read/write mode.
      */
     final static int OPEN_RDWR   = 0x00000002;
 
-    /**The log file should be opened as a new file if necessary.
+    /**
+     * The log file should be opened as a new file if necessary.
      */
     final static int OPEN_CREAT  = 0x00000004;
 
-    /**The log file should be synchronized with the file system.
+    /**
+     * The log file should be synchronized with the file system.
      */
     final static int OPEN_SYNC   = 0x00000008;
 
-    /**Seek relative location to the current position.
+    /**
+     * Seek relative location to the current position.
      */
     final static int SEEK_RELATIVE = 0;
 
-    /**Seek absolute location in the file.
+    /**
+     * Seek absolute location in the file.
      */
     final static int SEEK_ABSOLUTE = 1;
 
-    /**Open options string for file read only.
+    /**
+     * Open options string for file read only.
      */
     final static String MODE_READONLY     = "r"/*#Frozen*/;     // rb
 
-    /**Open options string for file read/write, old file.
+    /**
+     * Open options string for file read/write, old file.
      */
     static String MODE_READWRITEOLD = "rw"/*#Frozen*/;    // wb-
 
-    /**open options string for file read/write, new file.
+    /**
+     * open options string for file read/write, new file.
      */
     static String MODE_READWRITENEW = "rw"/*#Frozen*/;    // wb+
 
@@ -127,24 +137,29 @@ class LogFileHandle {
 
     final static String DSYNC_PROPERTY = "com.sun.appserv.transaction.nofdsync";
 
-    /**The maximum length of a file name.
+    /**
+     * The maximum length of a file name.
      */
     //!final static int LOG_FNAME_MAX = FILENAME_MAX;
     final static int LOG_FNAME_MAX = 252;
 
-    /**The size of a block in the file system.
+    /**
+     * The size of a block in the file system.
      */
     final static int FILESYSTEM_BLOCKSIZE = 4096;
 
-    /**Instance information.
+    /**
+     * Instance information.
      */
-    private RandomAccessFile fhandle = null;
+    // private RandomAccessFile fhandle = null;
     private FileDescriptor   fd      = null;
     private byte[] bufferData = null;
     boolean buffered = false;
     int bufferUpdateStart = -1;
     int bufferUpdateEnd   = -1;
     int buffPos = 0;
+
+    FileHandleState fileHandleState = null;
 
     static {
         dsyncProp = System.getProperty(DSYNC_PROPERTY);
@@ -154,40 +169,76 @@ class LogFileHandle {
         }
     }
 
-    /**Default LogFileHandle constructor.
-     *
-     * @param
-     *
-     * @return
-     *
-     * @see
+    /**
+     * Class to wrap the file handle for cleanup by the GC.
+     */
+    static class FileHandleState implements Runnable {
+
+        private RandomAccessFile fhandle = null;
+
+        @Override
+        public void run() {
+            try {
+                this.close();
+            } catch (IOException e) {
+                // ignore it
+            }
+        }
+
+        public void setFileHandle(RandomAccessFile fhandle) throws IOException {
+            if (this.fhandle != null) {
+                this.fhandle.close();
+            }
+            this.fhandle = fhandle;
+        }
+
+        public RandomAccessFile getFileHandle() {
+            return this.fhandle;
+        }
+
+        public boolean hasFileHandle() {
+            return fhandle != null;
+        }
+
+        public void close() throws IOException {
+            if (this.fhandle != null) {
+                this.fhandle.close();
+                this.fhandle = null;
+            }
+        }
+
+    }
+
+    /**
+     * Default LogFileHandle constructor.
      */
     LogFileHandle() {
-        fhandle = null;
+        fileHandleState = new FileHandleState();
         fd      = null;                                                       //@MA
         registerDestroyEvent();
     }
 
-    /**Creates a new file handle for the given file.
+    /**
+     * Creates a new file handle for the given file.
      *
-     * @param file  The File to be opened.
-     * @param int   Open options
-     *
-     * @return
+     * @param file The File to be opened.
+     * @param openOptions Open options
      *
      * @exception LogException Opening the file failed.
      *
-     * @see
      */
     LogFileHandle( File  file,
                    int   openOptions ) 
         throws LogException {
 
+        fileHandleState = new FileHandleState();
+
         // Perform buffering depending on the flag.
 
         if (dsyncProp == null) {
-            if( (openOptions & OPEN_SYNC) == 0 )
+            if( (openOptions & OPEN_SYNC) == 0 ) {
                 buffered = true;
+            }
         }
 
         // Change the OpenOptions to the format expected by CLOSE
@@ -205,15 +256,11 @@ class LogFileHandle {
         registerDestroyEvent();
     }
 
-    /**Destroys the FileHandle, closing the file, if open.
-     *
-     * @param
-     *
-     * @return
+    /**
+     * Destroys the FileHandle, closing the file, if open.
      *
      * @exception LogException The close of the file failed.
      *
-     * @see
      */
     void destroy()
         throws LogException {
@@ -222,21 +269,17 @@ class LogFileHandle {
         // If the file is buffered, this ensures that the buffer is written out
         // if necessary.
 
-        if( fhandle != null )
+        if( fileHandleState.hasFileHandle() ) {
             fileClose();
+        }
     }
 
     public final void registerDestroyEvent() {
-        CleanerFactory.create().register(this, () -> {
-            try {
-                destroy();
-            } catch(LogException ex) {
-                // Ignore it
-            }
-        });
+        CleanerFactory.create().register(this, fileHandleState);
     }
 
-    /**Reads from the file.
+    /**
+     * Reads from the file.
      *
      * @param buffer  Buffer for file read.
      *
@@ -244,7 +287,6 @@ class LogFileHandle {
      *
      * @exception LogException  The read failed.
      *
-     * @see
      */
     int fileRead( byte[] buffer )
         throws LogException{
@@ -260,17 +302,19 @@ class LogFileHandle {
 
                     // If the current position is beyond the end of the buffer then the read fails.
 
-                    if( buffPos >= bufferData.length )
+                    if( buffPos >= bufferData.length ) {
                         bytesRead = -1;
+                    }
 
                     // Otherwise if the buffer is not big enough for all the bytes, return those that
                     // it does contain, else return all the bytes asked for.
 
                     else {
-                        if( buffPos + buffer.length >= bufferData.length )
+                        if( buffPos + buffer.length >= bufferData.length ) {
                             bytesRead = bufferData.length - buffPos;
-                        else
+                        } else {
                             bytesRead = buffer.length;
+                        }
 
                         System.arraycopy(bufferData,buffPos,buffer,0,bytesRead);
                         buffPos += bytesRead;
@@ -280,8 +324,10 @@ class LogFileHandle {
                 // Otherwise read the data from the file.
 
                 else {
-                    bytesRead = fhandle.read(buffer);
-                    if( bytesRead == -1 ) bytesRead = 0;
+                    bytesRead = fileHandleState.getFileHandle().read(buffer);
+                    if( bytesRead == -1 ) {
+                        bytesRead = 0;
+                    }
                 }
             } catch( Throwable exc ) {
                 throw new LogException(LogException.LOG_READ_FAILURE, 1, 
@@ -291,7 +337,8 @@ class LogFileHandle {
         return bytesRead;
     }
 
-    /**Writes to the file.
+    /**
+     * Writes to the file.
      *
      * @param buffer  The bytes to write.
      *
@@ -299,7 +346,6 @@ class LogFileHandle {
      *
      * @exception LogException  The write failed.
      *
-     * @see
      */
     int fileWrite( byte[] buffer )
         throws LogException {
@@ -342,7 +388,7 @@ class LogFileHandle {
                 // For non-buffered writes, we always sync to the file system.
 
                 else {
-                    fhandle.write(buffer);
+                    fileHandleState.getFileHandle().write(buffer);
                     if (dsyncProp == null)
                         fd.sync();
                 }
@@ -356,23 +402,23 @@ class LogFileHandle {
         return buffer.length;
     }
 
-    /**Opens the given file.
+    /**
+     * Opens the given file.
      *
      * @param file      The name of the file.
      * @param fileMode  The mode to open in.
      *
-     * @return
-     *
      * @exception LogException The open failed.
      *
-     * @see
      */
     void fileOpen( File   file,
                    String fileMode ) 
         throws LogException {
-        fhandle = null;
+
         try {
-            fhandle = new RandomAccessFile(file,fileMode);
+            RandomAccessFile fhandle = new RandomAccessFile(file,fileMode);
+            fileHandleState.setFileHandle(fhandle);
+
             fd = fhandle.getFD();
 
             // If buffering, and the opened file has contents, then allocate the buffer
@@ -392,15 +438,11 @@ class LogFileHandle {
 
     }
 
-    /**Closes the file.
-     *
-     * @param
-     *
-     * @return
+    /**
+     * Closes the file.
      *
      * @exception LogException The close failed
      *
-     * @see
      */
     void fileClose()
         throws LogException {
@@ -410,12 +452,13 @@ class LogFileHandle {
             // If buffered, then ensure that the buffer is stored and synced with the
             // file system.
 
-            if( bufferUpdateStart != -1 )
+            if( bufferUpdateStart != -1 ){
                 fileSync();
+            }
 
             // Close the file.
 
-            fhandle.close();
+            fileHandleState.close();
         } catch( Throwable e ) {
             throw new LogException(LogException.LOG_CLOSE_FAILURE,1,
                     sm.getString("jts.log_close_failed"), e);
@@ -423,23 +466,19 @@ class LogFileHandle {
 
         // Reset the file handle and descriptor values.
 
-        fhandle = null;
         fd = null;                                                            //@MA
 
     }
 
-    /**Seeks the given position in the file.
+    /**
+     * Seeks the given position in the file.
      *
      * @param position  Position to seek.
      * @param seekMode  Mode of seek.
      *
-     * @return
-     *
      * @exception LogException The seek failed.
      *
-     * @see
      */
-
     void fileSeek( long position,
                    int  seekMode )
         throws LogException {
@@ -454,17 +493,20 @@ class LogFileHandle {
             // extended when the next write occurs.
 
             if( buffered ) {
-                if( seekMode == SEEK_RELATIVE )
+                if( seekMode == SEEK_RELATIVE ){
                     absPos = buffPos + position;
+                }
                 buffPos = (int)absPos;
             }
 
             // Otherwise seek the position in the file.
 
             else {
-                if( seekMode == SEEK_RELATIVE )
-                    absPos = fhandle.getFilePointer() + position;
-                fhandle.seek(absPos);
+                RandomAccessFile fileHandle = fileHandleState.getFileHandle();
+                if( seekMode == SEEK_RELATIVE ){
+                    absPos = fileHandle.getFilePointer() + position;
+                }
+                fileHandle.seek(absPos);
             }
         } catch( Throwable e ) {
             throw new LogException(LogException.LOG_READ_FAILURE,1,
@@ -472,15 +514,11 @@ class LogFileHandle {
         }
     }
 
-    /**Synchronises (flushes) the file to the file system.
-     *
-     * @param
-     *
-     * @return
+    /**
+     * Synchronizes (flushes) the file to the file system.
      *
      * @exception LogException The sync failed
      *
-     * @see
      */
     void fileSync() throws LogException {
 
@@ -489,10 +527,12 @@ class LogFileHandle {
 
         if( bufferUpdateStart != -1 )
             try {
-                fhandle.seek(bufferUpdateStart);
-                fhandle.write(bufferData,bufferUpdateStart,bufferUpdateEnd-bufferUpdateStart);
-                if (dsyncProp == null)
+                RandomAccessFile fileHandle = fileHandleState.getFileHandle();
+                fileHandle.seek(bufferUpdateStart);
+                fileHandle.write(bufferData,bufferUpdateStart,bufferUpdateEnd-bufferUpdateStart);
+                if (dsyncProp == null){
                     fd.sync();
+                }
 
                 bufferUpdateStart = -1;
                 bufferUpdateEnd   = -1;
@@ -503,7 +543,8 @@ class LogFileHandle {
 
     }
 
-    /**Reads a vector of records from the file.
+    /**
+     * Reads a vector of records from the file.
      *
      * @param vector  The vector to contain the records to be read.
      *
@@ -511,96 +552,34 @@ class LogFileHandle {
      *
      * @exception LogException The read failed.
      *
-     * @see
      */
     int readVector( byte[][] vector )
         throws LogException {
         int bytesRead = 0;
-        for( int i = 0; i < vector.length; i++ )
+        for( int i = 0; i < vector.length; i++ ) {
             bytesRead += fileRead(vector[i]);
+        }
 
         return bytesRead;
     }
 
-    /**Allocates more storage for the file.
+    /**
+     * Allocates more storage for the file.
      *
      * @param bytesToClear Number of bytes to allocate for the file.
      *
-     * @return
-     *
      * @exception LogException The allocation failed.
      *
-     * @see
      */
 
     void allocFileStorage( int bytesToClear )
         throws LogException {
-        int numberOfBlocks;                     // Number of blocks to write
-        int bytesRemaining;                     // Remaining bytes
-        //byte[] singleChar1 = new byte[1];
         byte[] singleChar2 = new byte[1];
-        long bytesWritten;
 
 
         if( bytesToClear == 0 ) {
             return;
         }
-        /* Don't bother with the compilcated version.  Just write out a byte at the
-           appropriate place.
-
-           // Calculate the number of blocks and remaining bytes
-
-           numberOfBlocks = bytesToClear / FILESYSTEM_BLOCKSIZE;
-           bytesRemaining = bytesToClear % FILESYSTEM_BLOCKSIZE;
-
-           // Initialise the single characters to be written to force allocation.
-
-           singleChar1[0] = (byte)0x01;
-           singleChar2[0] = (byte)0xff;
-
-           // For each block, write a single char and seek to the next block
-           // multiple from the current position
-
-           for( int i = 1; i <= numberOfBlocks; i++ )
-           {
-
-           // Write the single char at start of the file block
-
-           fileWrite(singleChar1);
-
-           // Now seek to the end of block
-
-           fileSeek(FILESYSTEM_BLOCKSIZE-2,SEEK_RELATIVE);
-
-           // Write the single char at end of the file block
-
-           fileWrite(singleChar2);
-           }
-
-           // If there are still bytes remaining, get them allocated too.
-
-           if( bytesRemaining > 0 )
-           {
-
-           // Now write out a byte at the beginning and end of the remaining
-           // area to be allocated
-
-           fileWrite(singleChar1);
-           if( --bytesRemaining > 0 )
-           {
-
-           // Seek to end of area and write the last char
-
-           fileSeek(bytesRemaining-1,SEEK_RELATIVE);
-
-           // Now write a byte at the end of the remaining area to be allocated.
-
-           fileWrite(singleChar2);
-           }
-           }
-
-           This is the quick version which only does one write.
-        */
 
         fileSeek(bytesToClear-1,SEEK_RELATIVE);
         fileWrite(singleChar2);
@@ -612,8 +591,9 @@ class LogFileHandle {
 
         // If the file is buffered, make sue the space is really allocated.
 
-        if( buffered )
+        if( buffered ) {
             fileSync();
+        }
 
     }
 }
